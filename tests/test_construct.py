@@ -6,12 +6,14 @@ not native behaviour.
 """
 
 import base64
+import errno
 import hashlib
 import io
 import json
 import os
 import re
 import shutil
+import signal
 import stat
 import struct
 import subprocess
@@ -539,6 +541,49 @@ class TahoeFixture(unittest.TestCase):
         with open(os.path.join(self.run_dir, "state.json")) as handle:
             return json.load(handle)
 
+    def status_context(self, out, err, limit=4000):
+        """Bounded context for an exit-status assertion, read only from this test's fake fixture."""
+        def bounded(text):
+            """The last `limit` characters, where a traceback or ESA's final error line lands."""
+            dropped = max(0, len(text) - limit)
+            return repr(text[dropped:]) + (" (%d leading chars dropped)" % dropped if dropped else "")
+
+        lines = ["stdout (tail): " + bounded(out), "stderr (tail): " + bounded(err)]
+        try:
+            state = self.state()
+            lines.append("state: step=%r failure=%r" % (state.get("step"), state.get("failure")))
+        except (OSError, ValueError) as exc:
+            lines.append("state: unreadable: %r" % exc)
+        logs = os.path.join(self.run_dir, "logs")
+        for path in (self.run_dir, os.path.join(self.run_dir, "evidence"), logs):
+            try:
+                lines.append("%s: %s" % (os.path.relpath(path, self.tmp), sorted(os.listdir(path))))
+            except OSError as exc:
+                lines.append("%s: %r" % (os.path.relpath(path, self.tmp), exc))
+        for name in ("tart-home", os.path.join("private", "known_hosts")):
+            lines.append("%s exists: %s" % (name, os.path.lexists(os.path.join(self.run_dir, name))))
+        try:
+            lines.append("tart events: %r" % [(c["event"], c["control_sock_present"])
+                                              for c in _fakes.calls(self.tools_dir, "tart-event")])
+        except (OSError, ValueError) as exc:
+            lines.append("tart events: unreadable: %r" % exc)
+        try:
+            names = sorted(os.listdir(logs))
+        except OSError:
+            names = []  # already reported in the listing above
+        for name in names:
+            if name.endswith(("-tart-run.log", "-guest-seal.log")):
+                try:
+                    with open(os.path.join(logs, name), "rb") as handle:
+                        size = handle.seek(0, os.SEEK_END)
+                        handle.seek(max(0, size - limit))
+                        data = handle.read().decode("utf-8", "replace")
+                except OSError as exc:
+                    lines.append("logs/%s: unreadable: %r" % (name, exc))
+                    continue
+                lines.append("logs/%s (%d bytes, tail): %s" % (name, size, bounded(data)))
+        return "\n".join(lines)
+
     def assert_cleaned(self):
         self.assertFalse(os.path.exists(self.seed))
         self.assertFalse(os.path.exists(self.artifact))
@@ -608,8 +653,8 @@ class TahoeConstructTest(TahoeFixture):
 
     def test_failed_seal_refused(self):
         self.set_guest("seal", self.guest["seal"].replace("apple_account=absent", "apple_account=present"))
-        code, _, err = self.construct()
-        self.assertEqual(code, 1)
+        code, out, err = self.construct()
+        self.assertEqual(code, 1, self.status_context(out, err))
         self.assertIn("seed.tahoe-seal/apple_account: guest check failed", err)
         self.assert_cleaned()
         self.assertTrue(os.path.exists(os.path.join(self.run_dir, "evidence", "seed.tahoe-seal.failed.json")))
@@ -663,15 +708,15 @@ class TahoeConstructTest(TahoeFixture):
 
     def test_finalizer_not_armed_refused(self):
         self.set_guest("seal", self.guest["seal"].replace("finalizer=armed\n", ""))
-        code, _, err = self.construct()
-        self.assertEqual(code, 1)
+        code, out, err = self.construct()
+        self.assertEqual(code, 1, self.status_context(out, err))
         self.assertIn("seed.tahoe-seal/finalizer: guest check failed", err)
         self.assert_cleaned()
 
     def test_finalizer_setup_failure_refused(self):
         self.control(exit={"seal": 1})
-        code, _, err = self.construct()
-        self.assertEqual(code, 1)
+        code, out, err = self.construct()
+        self.assertEqual(code, 1, self.status_context(out, err))
         self.assertIn("step guest-seal: exited with status 1", err)
         self.assert_cleaned()
         self.assertEqual(self.state()["step"], "failed")
@@ -835,6 +880,121 @@ class TahoeControlSocketOrderTest(TahoeFixture):
         self.assertIn("step tart-run: did not exit within 2 seconds", err)
         self.assertEqual(events, [("wait", "tart-run", "timeout")])
         self.assert_cleaned()
+
+
+class StaleRun(subprocess.Popen):
+    """A real fake ``tart run`` whose first poll() still reports it running."""
+
+    def __init__(self, *args, **kwargs):
+        self.polls = 0
+        super().__init__(*args, **kwargs)
+
+    def poll(self):
+        self.polls += 1
+        return None if self.polls == 1 else super().poll()
+
+
+class TahoeTerminalGroupTest(TahoeFixture):
+    """A failed seal whose close() meets the terminal process-group EPERM, in process.
+
+    The failed seal still writes the halt file, so the fake ``tart run`` exits
+    on its own while construct refuses. Only this run's ``tart run`` process
+    boundary is replaced: its first poll() is stale, and os.killpg refuses
+    the SIGTERM with EPERM without delivering it, as Darwin does for a group
+    whose only member is the exited, unreaped leader. The real wait reaps the
+    real fake ``tart run``. The signal-0 group probe is scripted, so no host
+    process group is probed, and proc's clock is replaced, so no probe
+    interval really sleeps.
+    """
+
+    def construct_at_terminal_group(self, group_gone, term_refused=True):
+        self.set_guest("seal", self.guest["seal"].replace("apple_account=absent", "apple_account=present"))
+        real_popen, real_killpg = proc.subprocess.Popen, proc.os.killpg
+        tart = self.tools["tart"]
+        runs, signals = [], []
+        clock = FakeClock()
+
+        def popen(argv, *args, **kwargs):
+            if argv[:3] != [tart, "run", "--no-graphics"]:
+                return real_popen(argv, *args, **kwargs)
+            child = StaleRun(argv, *args, **kwargs)
+            runs.append(child)
+            return child
+
+        def killpg(pid, sig):
+            if not runs or pid != runs[0].pid:
+                return real_killpg(pid, sig)
+            signals.append(sig)
+            if sig == signal.SIGTERM and signals == [signal.SIGTERM] and term_refused:
+                raise PermissionError(errno.EPERM, "Operation not permitted")
+            if sig == 0 and group_gone:
+                raise ProcessLookupError(errno.ESRCH, "No such process")
+            return None  # recorded, never delivered: the signal list shows any extra signal
+
+        with mock.patch.object(proc.subprocess, "Popen", popen), \
+                mock.patch.object(proc.os, "killpg", killpg), \
+                mock.patch.object(proc, "time", clock), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            code = cli.main(self.construct_argv())
+        self.assertEqual(len(runs), 1)
+        return code, out.getvalue(), err.getvalue(), runs[0], signals
+
+    def test_benign_terminal_group_eperm_keeps_seal_refusal_and_cleans(self):
+        code, out, err, run, signals = self.construct_at_terminal_group(group_gone=True)
+        self.assertEqual(code, 1, self.status_context(out, err))
+        self.assertIn("seed.tahoe-seal/apple_account: guest check failed", err)
+        self.assertNotIn("esa: error", err)
+        self.assert_cleaned()
+        self.assertTrue(os.path.exists(os.path.join(self.run_dir, "evidence", "seed.tahoe-seal.failed.json")))
+        self.assertEqual(self.state()["step"], "failed")
+        self.assertEqual(signals, [signal.SIGTERM, 0])
+        self.assertEqual((run.polls, run.returncode), (1, 0))  # one stale poll; the real wait reaped it
+
+    def test_residual_group_after_eperm_keeps_custody(self):
+        code, out, err, run, signals = self.construct_at_terminal_group(group_gone=False)
+        self.assertEqual(code, 2, self.status_context(out, err))
+        self.assertIn("esa: error: I/O: Operation not permitted", err)
+        self.assertTrue(os.path.isdir(os.path.join(self.run_dir, "tart-home")))  # close() raised before custody
+        self.assertFalse(os.path.exists(self.seed))
+        self.assertFalse(os.path.exists(self.artifact))
+        self.assertTrue(os.path.exists(os.path.join(self.run_dir, "evidence", "seed.tahoe-seal.failed.json")))
+        self.assertEqual(self.state()["step"], "failed")
+        self.assertEqual(signals, [signal.SIGTERM, 0])  # no SIGKILL and no cleanup after uncertainty
+        self.assertEqual((run.polls, run.returncode), (1, 0))
+
+    def test_group_remaining_after_reaped_leader_keeps_custody(self):
+        # SIGTERM is recorded but not delivered; the fake tart run halts on its
+        # own and the real wait reaps it, while every signal-0 probe reports the
+        # group present. Formerly that reap alone authorized cleanup (finding F1).
+        code, out, err, run, signals = self.construct_at_terminal_group(group_gone=False, term_refused=False)
+        logs = os.path.join(self.run_dir, "logs")
+        run_logs = [name for name in os.listdir(logs) if name.endswith("-tart-run.log")]
+        self.assertEqual(len(run_logs), 1)
+        self.assertEqual((code, out), (1, ""), self.status_context(out, err))
+        self.assertEqual(err, "esa: refused: step tart-run: process group remained after its leader exited; "
+                              "termination unresolved; log: %s\n" % os.path.join(logs, run_logs[0]))
+        home = os.path.join(self.run_dir, "tart-home")
+        self.assertIsNotNone(custody.read_marker(home))  # close() raised before custody
+        self.assertFalse(os.path.exists(self.seed))
+        self.assertFalse(os.path.exists(self.artifact))
+        self.assertTrue(os.path.exists(os.path.join(self.run_dir, "evidence", "seed.tahoe-seal.failed.json")))
+        self.assertEqual(self.state()["step"], "failed")
+        self.assertEqual(signals, [signal.SIGTERM] + [0] * 41)  # one grace of probes; no SIGKILL after the reap
+        self.assertEqual((run.polls, run.returncode), (1, 0))
+
+
+class FakeClock:
+    """proc's clock: sleeping only moves it forward."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
 
 
 LOCK_HOLDER = ("import fcntl, os, sys\n"

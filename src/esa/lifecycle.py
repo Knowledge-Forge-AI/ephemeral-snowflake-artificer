@@ -10,6 +10,10 @@
   artifact declares and checks the semantic config diff is bounded to them.
 - ``instance delete`` removes only an ESA-owned instance home.
 
+A failed command removes its own owned home (and a partial export archive)
+only once every Tart step it started is shown terminated. If a termination
+is unresolved, the command fails and keeps them, unverified, for the operator.
+
 Tart clone or import alone does not guarantee fresh identifiers: Tart
 regenerates a MAC only on a local collision. ESA therefore transforms
 explicitly (``tart set --random-mac`` / ``--random-serial``). A transformed or
@@ -108,12 +112,14 @@ def seed_export(args) -> int:
         size = os.lstat(output).st_size
         digest, _, _ = tartvm.hash_file(output)
     except BaseException:
-        runner.kill_all()
-        if created and os.path.lexists(output):
-            os.unlink(output)
+        runner.kill_all()  # raises if a termination is unresolved, keeping the home and archive
+        try:
+            if created and os.path.lexists(output):
+                os.unlink(output)
+        finally:
+            custody.remove_owned(home, token)
         raise
-    finally:
-        custody.remove_owned(home, token)
+    custody.remove_owned(home, token)
     _emit({
         "export_schema": "esa-export-v1",
         "artifact_id": artifact["artifact_id"],
@@ -152,10 +158,10 @@ def seed_import(args) -> int:
         os.rename(vm, output)
         _seal_seed_files(output)
     except BaseException:
-        runner.kill_all()
-        raise
-    finally:
+        runner.kill_all()  # raises if a termination is unresolved, keeping the home
         custody.remove_owned(home, token)
+        raise
+    custody.remove_owned(home, token)
     _emit({
         "import_schema": "esa-import-v1",
         "artifact_id": artifact["artifact_id"],

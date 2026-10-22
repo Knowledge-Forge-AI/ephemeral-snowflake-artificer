@@ -1,14 +1,20 @@
 """Seed export/import and instance create/delete over a fake Tart."""
 
+import io
 import json
 import os
+import signal
+import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import _util
 import _fakes
 from _util import run_cli
+from esa import cli, custody, proc
+from test_proc import PROBE, SLEEP, Boundary, FakeProcess, esrch, timeout
 
 # The default copy mode is APFS clonefile(2), which exists only on Darwin.
 # Elsewhere the fixtures select the existing explicit sparse copy.
@@ -248,6 +254,140 @@ class SeedArchiveTest(LifecycleFixture):
         self.assertEqual(code, 1)
         self.assertIn("step tart-export", err)
         self.assertFalse(os.path.exists(tvm))
+
+
+def tree(path):
+    """Every entry under path: its mode, size, inode and mtime, plus the bytes of small files."""
+    found = {}
+    for root, dirs, files in os.walk(path):
+        for name in dirs + files:
+            full = os.path.join(root, name)
+            st = os.lstat(full)
+            entry = (st.st_mode, st.st_size, st.st_ino, st.st_mtime_ns)
+            if stat.S_ISREG(st.st_mode) and st.st_size <= 1 << 20:
+                with open(full, "rb") as handle:
+                    entry += (handle.read(),)
+            found[os.path.relpath(full, path)] = entry
+    return found
+
+
+class UnresolvedTerminationTest(LifecycleFixture):
+    """One Tart step whose termination is or is not shown complete, run in process.
+
+    Only that step's Popen, os.killpg for its synthetic pid and proc's clock are
+    replaced, with the scripted boundary from test_proc; every other step runs
+    the real fake Tart, and custody.remove_owned is observed, not replaced. The
+    owned home is recorded when the step starts.
+    """
+
+    def run_step(self, verb, script, argv, partial=None):
+        boundary = Boundary(script)
+        real_popen = proc.subprocess.Popen
+        seen = {}
+
+        def popen(cmd, *args, **kwargs):
+            if cmd[:2] != [self.tools["tart"], verb]:
+                return real_popen(cmd, *args, **kwargs)
+            seen["home"] = kwargs["env"]["TART_HOME"]
+            seen["tree"] = tree(seen["home"])
+            if partial is not None:
+                _util.write_bytes(os.path.dirname(cmd[3]), os.path.basename(cmd[3]), partial)
+            return FakeProcess(boundary)
+
+        with mock.patch.object(proc.subprocess, "Popen", popen), \
+                mock.patch.object(proc.os, "killpg", boundary.killpg), \
+                mock.patch.object(proc, "time", boundary), \
+                mock.patch.object(custody, "remove_owned", wraps=custody.remove_owned) as removed, \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            code = cli.main(argv)
+        self.assertEqual(boundary.script, [], "scripted boundary calls were not made")
+        return code, out.getvalue(), err.getvalue(), seen, removed
+
+    def assert_kept(self, seen, removed):
+        self.assertEqual(removed.call_count, 0)
+        self.assertEqual(tree(seen["home"]), seen["tree"])  # marker, logs and VM files byte-for-byte
+        self.assertIsNotNone(custody.read_marker(seen["home"]))
+
+    def export_argv(self, tvm):
+        return ["seed", "export", "--artifact", self.artifact, "--seed-dir", self.seed, "--tart", self.tools["tart"],
+                "--run-dir", os.path.join(self.tmp, "exp-run"), "--output", tvm,
+                "--expect-artifact-id", self.artifact_id] + COPY_MODE
+
+    def test_export_with_both_graces_exhausted_keeps_custody(self):
+        tvm = os.path.join(self.tmp, "archive.tvm")
+        code, out, err, seen, removed = self.run_step("export", [
+            (("wait", 7200), timeout()),
+            (("poll",), None),
+            (("killpg", 4242, signal.SIGTERM), None),
+            (("wait", 10), timeout()),
+            (("killpg", 4242, signal.SIGKILL), None),
+            (("wait", 10), timeout()),
+        ], self.export_argv(tvm), partial=b"partial archive")
+        home = os.path.join(self.tmp, "exp-run", "tart-home")
+        self.assertEqual(seen["home"], home)
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, "esa: refused: step tart-export: did not exit within 10 seconds of SIGKILL; "
+                              "termination unresolved; log: %s\n" % os.path.join(home, "esa-logs", "001-tart-export.log"))
+        self.assert_kept(seen, removed)
+        with open(tvm, "rb") as handle:
+            self.assertEqual(handle.read(), b"partial archive")  # kept, unverified, for the operator
+
+    def test_export_timeout_with_known_clear_group_cleans(self):
+        tvm = os.path.join(self.tmp, "archive.tvm")
+        code, out, err, seen, removed = self.run_step("export", [
+            (("wait", 7200), timeout()),
+            (("poll",), None),
+            (("killpg", 4242, signal.SIGTERM), None),
+            (("wait", 10), -15),
+            (("killpg", 4242, 0), esrch()),
+        ], self.export_argv(tvm), partial=b"partial archive")
+        home = os.path.join(self.tmp, "exp-run", "tart-home")
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, "esa: refused: step tart-export: timed out after 7200 seconds; log: %s\n"
+                         % os.path.join(home, "esa-logs", "001-tart-export.log"))
+        self.assertEqual(removed.call_count, 1)
+        self.assertFalse(os.path.exists(home))
+        self.assertFalse(os.path.exists(tvm))
+
+    def test_import_with_reaped_leader_and_present_group_keeps_custody(self):
+        tvm = _util.write_bytes(self.tmp, "archive.tvm", b"synthetic archive")
+        out_seed = os.path.join(self.tmp, "imported")
+        code, out, err, seen, removed = self.run_step("import", [
+            (("wait", 7200), timeout()),
+            (("poll",), None),
+            (("killpg", 4242, signal.SIGTERM), None),
+            (("wait", 10), -15, 1),  # reaped 1 s into the grace; no SIGKILL may follow
+        ] + [PROBE, SLEEP] * 36 + [PROBE], ["seed", "import", "--artifact", self.artifact, "--tvm", tvm,
+                                            "--tart", self.tools["tart"],
+                                            "--run-dir", os.path.join(self.tmp, "imp-run"), "--output", out_seed])
+        home = os.path.join(self.tmp, "imp-run", "tart-home")
+        self.assertEqual(seen["home"], home)
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, "esa: refused: step tart-import: process group remained after its leader exited; "
+                              "termination unresolved; log: %s\n" % os.path.join(home, "esa-logs", "001-tart-import.log"))
+        self.assert_kept(seen, removed)
+        self.assertFalse(os.path.exists(out_seed))
+
+    def test_instance_create_with_unresolved_set_keeps_custody(self):
+        home = os.path.join(self.tmp, "inst-home")
+        code, out, err, seen, removed = self.run_step("set", [
+            (("wait", 600), timeout()),
+            (("poll",), None),
+            (("killpg", 4242, signal.SIGTERM), None),
+            (("wait", 10), timeout()),
+            (("killpg", 4242, signal.SIGKILL), None),
+            (("wait", 10), timeout()),
+        ], ["instance", "create", "--artifact", self.artifact, "--seed-dir", self.seed, "--tart", self.tools["tart"],
+            "--tart-home", home, "--name", "job-1", "--expect-artifact-id", self.artifact_id] + COPY_MODE)
+        self.assertEqual(seen["home"], home)
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, "esa: refused: step tart-set: did not exit within 10 seconds of SIGKILL; "
+                              "termination unresolved; log: %s\n" % os.path.join(home, "esa-logs", "001-tart-set.log"))
+        self.assert_kept(seen, removed)
+        self.assertIn(os.path.join("vms", "job-1", "disk.img"), seen["tree"])
+        with open(os.path.join(home, ".esa-kind"), "rb") as handle:
+            self.assertEqual(handle.read(), b"esa-instance-home-v1\n")
 
 
 if __name__ == "__main__":
