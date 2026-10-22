@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+
+# VM payloads and build outputs never belong in source.
+*.img
+*.ipsw
+*.tvm
+/build/
+/result
+/result-*
+/.esa-local/
+
+# Local editor and code-navigation tool state.
+/.serena/

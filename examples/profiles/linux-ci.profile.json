@@ -1,0 +1,64 @@
+{
+  "schema": "esa-manifest-v1",
+  "kind": "profile",
+  "label": "linux-ci",
+  "family": "nixos-minimal",
+  "arch": "arm64",
+  "platform": "tart",
+  "revision": 1,
+  "resources": {
+    "cpu_count": 4,
+    "memory": "8GiB",
+    "disk": "64GiB"
+  },
+  "inputs": {
+    "nixpkgs": {
+      "rev": "3070466632a46d6a640158d07729bfa44d7d79dc",
+      "nar_hash": "sha256-Okyk9DbwLiCcUE78AwloP2Y6pFetlhJILD9Rmmi08uM="
+    },
+    "flake_lock_sha256": "sha256:d5b7b9f8f6e6053ceb7ebfae9266ccb48c0b71ea232f322e928fcf752b443e52",
+    "nixos_release": "26.05"
+  },
+  "customization": {
+    "kind": "nixos-module",
+    "sha256": "sha256:676b4e6c5443a672d9f86784ff99dbe57b90a01fdb9d8b1e2adf7da7dbd6d6d3"
+  },
+  "capabilities": {
+    "guest": [
+      "account.unprivileged",
+      "tool.bash",
+      "tool.c-toolchain",
+      "tool.ca-certificates",
+      "tool.ci-runner",
+      "tool.git",
+      "tool.go-1.25",
+      "tool.jq",
+      "tool.node-24",
+      "tool.ssh",
+      "tool.transfer"
+    ],
+    "host": [
+      "apple-silicon"
+    ]
+  },
+  "readiness": {
+    "method": "ssh",
+    "timeout_seconds": 300,
+    "consumer_check": "linux-ci.runner-ready"
+  },
+  "seed": {
+    "machine_identity_uninitialized": true,
+    "ssh_host_keys_absent": true,
+    "registration_material_absent": true,
+    "consumer_credentials_absent": true,
+    "build_residue_removed": true,
+    "inherited_default_account": false,
+    "nix_generations_retained": 1,
+    "regenerate_on_clone": [
+      "mac-address",
+      "machine-id",
+      "random-seed",
+      "ssh-host-keys"
+    ]
+  }
+}

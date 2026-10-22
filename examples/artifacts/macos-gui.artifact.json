@@ -1,0 +1,153 @@
+{
+  "schema": "esa-manifest-v1",
+  "kind": "artifact",
+  "label": "macos-gui",
+  "family": "tahoe-vanilla",
+  "arch": "arm64",
+  "platform": "tart",
+  "artifact_id": "esa-artifact-v1:sha256:31dbb33dba5e9beb52a88897dc8f712acca994fcb25ede152470f69da3ea500e",
+  "esa_revision": "f9821898394a60a9bb0d9f73eecb1be3452ff6ec",
+  "profile": {
+    "label": "macos-gui",
+    "revision": 1,
+    "content_sha256": "sha256:9f1cd7ea5a9cb72bcd48747bc0406f6c172e6263b7b5021d5fea6eca3f30902a"
+  },
+  "inputs": {
+    "nixpkgs": {
+      "rev": "b32b92a1579112f0a15fb6445325a8c9aa5f3617",
+      "nar_hash": "sha256-sUK5kjiQne6DzJ9XcrFCwSkmuP04BwkRz4pYafS3V5g="
+    },
+    "nix_darwin": {
+      "rev": "cb899afbfc813526039bce1deafe79088f2d176c",
+      "nar_hash": "sha256-Q3pTsTF+ydsPz8+EPmx8eU5Nshmh39BHcYxQZfbdUOs="
+    },
+    "flake_lock_sha256": "sha256:215750b732189f569346127d6bd1217557630b166fe256c24b36de683e5cd8df",
+    "macos": {
+      "product_version": "26.0.1",
+      "build": "25A362",
+      "base": {
+        "kind": "oci",
+        "repository": "ghcr.io/cirruslabs/macos-tahoe-vanilla",
+        "digest": "sha256:05de3946161bf947420d0c44e21f37d3192bb7138228875c9c4f691acb5ee04e"
+      },
+      "recipe": {
+        "repository": "https://github.com/cirruslabs/macos-image-templates",
+        "rev": "f619496f08e64b7cdcc4e317f973c4e8064322b5",
+        "path": "templates/vanilla-tahoe.pkr.hcl"
+      }
+    }
+  },
+  "resources": {
+    "cpu_count": 4,
+    "memory": "8GiB",
+    "disk": "80GiB"
+  },
+  "customization": {
+    "kind": "nix-darwin-module",
+    "sha256": "sha256:84074310af5ea8ecdc740395f0c85ce22c018d9aec827b2380793982d4784fef"
+  },
+  "capabilities": {
+    "guest": [
+      "account.synthetic-user",
+      "macos.app.passwords",
+      "macos.automation.accessibility",
+      "macos.automation.osascript",
+      "macos.gui-session"
+    ],
+    "host": [
+      "apple-silicon"
+    ]
+  },
+  "readiness": {
+    "method": "ssh",
+    "timeout_seconds": 600,
+    "consumer_check": "macos-gui.session-ready"
+  },
+  "seed": {
+    "machine_identity_uninitialized": true,
+    "ssh_host_keys_absent": true,
+    "registration_material_absent": true,
+    "consumer_credentials_absent": true,
+    "build_residue_removed": true,
+    "inherited_default_account": true,
+    "nix_generations_retained": 1,
+    "regenerate_on_clone": [
+      "mac-address",
+      "platform-machine-identifier",
+      "ssh-host-keys"
+    ]
+  },
+  "builders": [
+    {
+      "name": "nix",
+      "version": "2.31.2"
+    },
+    {
+      "name": "packer",
+      "version": "1.14.2"
+    },
+    {
+      "name": "packer-plugin-tart",
+      "version": "1.16.0"
+    },
+    {
+      "name": "tart",
+      "version": "2.30.0"
+    }
+  ],
+  "payload": {
+    "format": "tart-vm-dir-v1",
+    "files": [
+      {
+        "path": "config.json",
+        "size_bytes": 640,
+        "sha256": "sha256:93c7642715c194abd727c0caa686617abc72e3c1c70946f215cf2d7b5747d429"
+      },
+      {
+        "path": "disk.img",
+        "size_bytes": 85899345920,
+        "sha256": "sha256:21d71ef2255c986fca23b4e1bba233ee5aaa23e7f73b112d68b4e5be1e232b4f"
+      },
+      {
+        "path": "nvram.bin",
+        "size_bytes": 131072,
+        "sha256": "sha256:6d6edb3569808f887351a3f6d72c927ff1e201b7aed38cb138feae6c98efbb70"
+      }
+    ],
+    "digest": "sha256:85b6f76e9bd4d1b7a8722c11461516f7fa9842843c8b587dad61469a7012e9ba"
+  },
+  "storage": {
+    "disk_logical_bytes": 85899345920,
+    "payload_bytes": 85899477632
+  },
+  "observations": [],
+  "validation": [
+    {
+      "check": "seed.identifiers-absent",
+      "result": "pass",
+      "evidence_sha256": "sha256:ba60e870cd6d91e8c1a169e9630eaf9081bbed1c20a38ed15f4bd40ce9984d0e"
+    }
+  ],
+  "upstream_licenses": [
+    {
+      "component": "macos",
+      "license": "LicenseRef-Apple-macOS-SLA",
+      "reference": "https://www.apple.com/legal/sla/"
+    },
+    {
+      "component": "macos-image-templates",
+      "license": "LicenseRef-Upstream-Repository-Terms",
+      "reference": "https://github.com/cirruslabs/macos-image-templates"
+    },
+    {
+      "component": "nix-darwin",
+      "license": "MIT",
+      "reference": "https://github.com/nix-darwin/nix-darwin"
+    },
+    {
+      "component": "nixpkgs",
+      "license": "MIT",
+      "reference": "https://github.com/NixOS/nixpkgs/blob/master/COPYING"
+    }
+  ]
+}

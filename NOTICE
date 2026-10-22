@@ -1,0 +1,21 @@
+# Ephemeral Snowflake Artificer Notice
+
+Ephemeral Snowflake Artificer (ESA) is stewarded by Samuel Leighton Lair.
+
+Copyright (c) 2026 Samuel Leighton Lair and Ephemeral Snowflake Artificer contributors.
+
+Unless a file states otherwise, ESA's own source code, image recipes, generators, manifest and consumption contracts, validation tooling, documentation, and other ESA-authored material are licensed under the GNU Affero General Public License v3.0 or later. See LICENSE.
+
+Commercial licenses for ESA itself are available for proprietary terms. Commercial licensing contact: sam.lair@knowledge-forge.ai.
+
+## Image payload licensing boundary
+
+ESA is image-building infrastructure. Operating systems, packages, base images, installers, firmware, and other software that ESA fetches, assembles, configures, validates, or records in a virtual-machine image are not relicensed merely because ESA processes them or because an image was built with ESA.
+
+Each operating system, package, base image, dependency, and other third-party or separately maintained material in an image remains subject to the copyright, license, notice, trademark, and other terms established by its authoritative upstream source or rights holder. Apple macOS remains subject to Apple's software license agreement, which each user must accept and comply with directly.
+
+ESA artifact manifests record image provenance (`esa_revision`, the consumer `profile` reference, pinned `inputs`) and upstream licensing references (`upstream_licenses`). Those references describe the payload's applicable terms; they do not treat ESA's AGPL-3.0-or-later license as the payload license.
+
+A consumer profile and any customization it references live in the consumer's own repository and are governed by that repository's terms unless the file states otherwise.
+
+Third-party material incorporated into ESA itself remains subject to its own license and notice requirements.

@@ -1,0 +1,74 @@
+{
+  "schema": "esa-manifest-v1",
+  "kind": "profile",
+  "label": "macos-gui",
+  "family": "tahoe-vanilla",
+  "arch": "arm64",
+  "platform": "tart",
+  "revision": 1,
+  "resources": {
+    "cpu_count": 4,
+    "memory": "8GiB",
+    "disk": "80GiB"
+  },
+  "inputs": {
+    "nixpkgs": {
+      "rev": "b32b92a1579112f0a15fb6445325a8c9aa5f3617",
+      "nar_hash": "sha256-sUK5kjiQne6DzJ9XcrFCwSkmuP04BwkRz4pYafS3V5g="
+    },
+    "nix_darwin": {
+      "rev": "cb899afbfc813526039bce1deafe79088f2d176c",
+      "nar_hash": "sha256-Q3pTsTF+ydsPz8+EPmx8eU5Nshmh39BHcYxQZfbdUOs="
+    },
+    "flake_lock_sha256": "sha256:215750b732189f569346127d6bd1217557630b166fe256c24b36de683e5cd8df",
+    "macos": {
+      "product_version": "26.0.1",
+      "build": "25A362",
+      "base": {
+        "kind": "oci",
+        "repository": "ghcr.io/cirruslabs/macos-tahoe-vanilla",
+        "digest": "sha256:05de3946161bf947420d0c44e21f37d3192bb7138228875c9c4f691acb5ee04e"
+      },
+      "recipe": {
+        "repository": "https://github.com/cirruslabs/macos-image-templates",
+        "rev": "f619496f08e64b7cdcc4e317f973c4e8064322b5",
+        "path": "templates/vanilla-tahoe.pkr.hcl"
+      }
+    }
+  },
+  "customization": {
+    "kind": "nix-darwin-module",
+    "sha256": "sha256:84074310af5ea8ecdc740395f0c85ce22c018d9aec827b2380793982d4784fef"
+  },
+  "capabilities": {
+    "guest": [
+      "account.synthetic-user",
+      "macos.app.passwords",
+      "macos.automation.accessibility",
+      "macos.automation.osascript",
+      "macos.gui-session"
+    ],
+    "host": [
+      "apple-silicon"
+    ]
+  },
+  "readiness": {
+    "method": "ssh",
+    "timeout_seconds": 600,
+    "consumer_check": "macos-gui.session-ready"
+  },
+  "seed": {
+    "machine_identity_uninitialized": true,
+    "ssh_host_keys_absent": true,
+    "registration_material_absent": true,
+    "consumer_credentials_absent": true,
+    "build_residue_removed": true,
+    "inherited_default_account": true,
+    "nix_generations_retained": 1,
+    "regenerate_on_clone": [
+      "mac-address",
+      "platform-machine-identifier",
+      "ssh-host-keys"
+    ]
+  }
+}

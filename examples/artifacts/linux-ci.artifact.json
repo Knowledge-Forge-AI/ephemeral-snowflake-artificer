@@ -1,0 +1,134 @@
+{
+  "schema": "esa-manifest-v1",
+  "kind": "artifact",
+  "label": "linux-ci",
+  "family": "nixos-minimal",
+  "arch": "arm64",
+  "platform": "tart",
+  "artifact_id": "esa-artifact-v1:sha256:5b4583aa5862fbf6d6a3f45a1afea49185fbd59bb03e1d5c493daa5aca200d59",
+  "esa_revision": "f9821898394a60a9bb0d9f73eecb1be3452ff6ec",
+  "profile": {
+    "label": "linux-ci",
+    "revision": 1,
+    "content_sha256": "sha256:2f06a99574972e4fc946cb0aec8b8a1f437048492f6c8016f4ff13ce8266e0a0"
+  },
+  "inputs": {
+    "nixpkgs": {
+      "rev": "3070466632a46d6a640158d07729bfa44d7d79dc",
+      "nar_hash": "sha256-Okyk9DbwLiCcUE78AwloP2Y6pFetlhJILD9Rmmi08uM="
+    },
+    "flake_lock_sha256": "sha256:d5b7b9f8f6e6053ceb7ebfae9266ccb48c0b71ea232f322e928fcf752b443e52",
+    "nixos_release": "26.05"
+  },
+  "resources": {
+    "cpu_count": 4,
+    "memory": "8GiB",
+    "disk": "64GiB"
+  },
+  "customization": {
+    "kind": "nixos-module",
+    "sha256": "sha256:676b4e6c5443a672d9f86784ff99dbe57b90a01fdb9d8b1e2adf7da7dbd6d6d3"
+  },
+  "capabilities": {
+    "guest": [
+      "account.unprivileged",
+      "tool.bash",
+      "tool.c-toolchain",
+      "tool.ca-certificates",
+      "tool.ci-runner",
+      "tool.git",
+      "tool.go-1.25",
+      "tool.jq",
+      "tool.node-24",
+      "tool.ssh",
+      "tool.transfer"
+    ],
+    "host": [
+      "apple-silicon"
+    ]
+  },
+  "readiness": {
+    "method": "ssh",
+    "timeout_seconds": 300,
+    "consumer_check": "linux-ci.runner-ready"
+  },
+  "seed": {
+    "machine_identity_uninitialized": true,
+    "ssh_host_keys_absent": true,
+    "registration_material_absent": true,
+    "consumer_credentials_absent": true,
+    "build_residue_removed": true,
+    "inherited_default_account": false,
+    "nix_generations_retained": 1,
+    "regenerate_on_clone": [
+      "mac-address",
+      "machine-id",
+      "random-seed",
+      "ssh-host-keys"
+    ]
+  },
+  "builders": [
+    {
+      "name": "nix",
+      "version": "2.31.2"
+    },
+    {
+      "name": "tart",
+      "version": "2.30.0"
+    }
+  ],
+  "payload": {
+    "format": "tart-vm-dir-v1",
+    "files": [
+      {
+        "path": "config.json",
+        "size_bytes": 640,
+        "sha256": "sha256:c238939a287ece352131712d5deaa271e37a95a1e6b8fcdc377b1caaa6c87694"
+      },
+      {
+        "path": "disk.img",
+        "size_bytes": 68719476736,
+        "sha256": "sha256:bb48afd2bf4fea915e886286d410a24ae5c4f66efaf7c826a720f359cd168a41"
+      },
+      {
+        "path": "nvram.bin",
+        "size_bytes": 131072,
+        "sha256": "sha256:580dad400885dd9a89ed6229b85a4004729a22b181fe5d11f5cc311532adeca8"
+      }
+    ],
+    "digest": "sha256:68d2b88fe52bff42a9828a104af6daade28b763a7582a6a575fe9830ff7125bd"
+  },
+  "storage": {
+    "disk_logical_bytes": 68719476736,
+    "payload_bytes": 68719608448
+  },
+  "observations": [
+    {
+      "report_id": "example-report-1",
+      "observed_at": "2026-10-21T00:00:00Z",
+      "metrics": {
+        "host_allocated_bytes": 9663676416,
+        "clone_to_ready_ms": 15000
+      }
+    }
+  ],
+  "validation": [
+    {
+      "check": "seed.identifiers-absent",
+      "result": "pass",
+      "evidence_sha256": "sha256:83e67f8cb42cd8645e4958f921471332a5680f70ae6285e7c362d0b5f62c960f"
+    }
+  ],
+  "upstream_licenses": [
+    {
+      "component": "nixpkgs",
+      "license": "MIT",
+      "reference": "https://github.com/NixOS/nixpkgs/blob/master/COPYING"
+    },
+    {
+      "component": "nixpkgs.packages",
+      "license": "LicenseRef-Nixpkgs-Package-Meta",
+      "reference": "https://nixos.org/manual/nixpkgs/stable/"
+    }
+  ]
+}
