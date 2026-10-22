@@ -1,6 +1,6 @@
 # ESA consumer contract
 
-Status: accepted for the foundation. Applies to `esa-manifest-v1`.
+Status: accepted for the foundation; updated for the implemented backends ([ADR 0002](../adr/0002-esa-backends.md)). Applies to `esa-manifest-v1`.
 
 This document tells a consumer owner what ESA provides, what the consumer
 owns, and how an accepted local seed is used without rebuilding it. It uses
@@ -18,7 +18,8 @@ read an artifact.
 | The manifest format, identity rules and refusal rules ([manifest v1](manifest-v1.md)) | Admission: which `artifact_id` or `payload.digest` it accepts, and why |
 | Generic seed preparation and generic validation evidence | Consumer validation and acceptance tests, fixtures and assertions |
 | Recording provenance and upstream licensing references | Runtime injection of credentials, source and fixtures into each instance |
-| | Instance lifecycle: clone, start, stop, delete, scoped to its own attempt |
+| The seed custody and instance helper (`esa seed`, `esa instance`) | Instance lifecycle decisions: when to create, start, stop and delete, scoped to its own attempt |
+| Generic guest-agent plumbing (`esa.guestAgent`) | Any guest-agent package, its source, checksum and licence |
 | | Where its seeds are stored, and their visibility |
 
 ESA is not a credential broker, a VM scheduler or a registry. Publishing
@@ -44,7 +45,7 @@ ESA does **not** guarantee:
 ## Lifecycle
 
 1. **Profile.** The consumer writes a profile and keeps it in its own repository. `esa validate` and `esa plan --esa-revision <commit>` refuse unpinned or unsupported declarations before any build exists.
-2. **Build.** A future ESA backend produces a Tart VM directory and an artifact manifest. No backend is implemented yet.
+2. **Build.** `esa nixos prepare|construct` or `esa tahoe prepare|construct` produces a stopped, read-only Tart VM directory and an artifact manifest, using tool paths, a build store and a bootstrap credential file chosen by the caller (see [backend work units](../architecture/backend-work-units.md)). Construction is implemented but **not native-qualified**: no family has passed ESA-QUAL-01, and a successful build is neither qualification nor acceptance.
 3. **Admission (once per artifact).** The consumer runs `esa verify ARTIFACT --profile PROFILE --payload-dir SEED_DIR` (a full hash) and its own acceptance tests. It then records a receipt in its own repository or private store. The receipt contains:
    - `schema` and `artifact_id`, and `payload.digest` if the consumer keys on it;
    - the profile `revision` and `content_sha256`;
@@ -58,7 +59,15 @@ ESA does **not** guarantee:
    `--quick` refuses to run without an `--expect-*` value. A manifest that only agrees with itself proves nothing about admission.
 
    The consumer then clones the seed and never boots the seed itself. A consumer that needs stronger per-job assurance runs the full verify, at the cost of hashing the whole disk.
-5. **Instance.** The clone gets fresh identifiers, as listed in `seed.regenerate_on_clone`. The consumer injects per-attempt credentials and registration, runs the job, and deletes the clone and any retained diagnostics it created. Nothing from a job flows back into the seed.
+5. **Instance.** `esa instance create --artifact A --seed-dir SEED --tart PATH --tart-home NEW_HOME --name N (--expect-artifact-id ID | --full) [--inject-dir DIR]` does four things:
+   - it verifies the seed;
+   - it clones it into a new ESA-owned `TART_HOME` (APFS clone, or `--copy-mode sparse-copy`);
+   - it applies the host-side identifier transformations the artifact declares: `tart set --random-mac`, plus `--random-serial` for `platform-machine-identifier`;
+   - it refuses unless only those config keys changed.
+
+   Tart's own clone or import does not guarantee fresh identifiers: it changes a MAC only on a collision. The guest generates machine-id, random seed and host keys on first boot; that generation is declared, not verified by ESA.
+
+   The consumer starts the instance with the printed `tart run` arguments and injects per-attempt credentials and registration. For nixos-minimal, authorized keys go in `DIR/authorized_keys/<user>`, shared read-only as `esa-inject`. Without that share the instance has no SSH access. The consumer then runs the job and calls `esa instance delete` to remove the instance and its home. Nothing from a job flows back into the seed, and a transformed or booted instance is never verified as if it were the seed.
 6. **Adoption and rollback.** Keep the previously accepted seed and receipt until the new one is accepted. A failed candidate leaves the working seed usable. Linux and macOS seeds are accepted independently.
 
 ## Example: Linux CI runner consumer (`linux-ci`)
@@ -74,8 +83,9 @@ See [`examples/profiles/linux-ci.profile.json`](../../examples/profiles/linux-ci
 **The consumer's private profile and module supply:**
 
 - the toolchain it needs, declared as capability tokens (for example Git, Bash, CA certificates, SSH, transfer and checksum tools, jq, a Go toolchain, Node, a C toolchain and its verified runner executable);
-- an unprivileged runner account;
-- key-only SSH after bootstrap.
+- an unprivileged runner account with no password and no keys. `consumer_credentials_absent` permits such a declared service account; it excludes personal accounts and every credential;
+- key-only SSH, through per-instance `esa-inject` keys;
+- if its readiness method is `tart-guest-agent`, the exact agent package as `esa.guestAgent.package`.
 
 **The consumer owns:**
 
@@ -97,7 +107,12 @@ See [`examples/profiles/macos-gui.profile.json`](../../examples/profiles/macos-g
 - application and accessibility permission expectations;
 - its artifact-admission rules. ESA never verifies TCC or accessibility grants.
 
-**The vanilla base keeps the upstream recipe's publicly known administrator login.** The example therefore declares `inherited_default_account: true`. The consumer must run such seeds only on an isolated network, or rotate that credential at instance start.
+**The vanilla base keeps the upstream recipe's publicly known administrator login.** The example therefore declares `inherited_default_account: true`, and that is the only constructible value. The consumer must run such seeds only on an isolated network, or rotate that credential at instance start.
+
+- ESA uses the inherited login only during construction. It reads it from a caller-supplied private file through `bin/esa-askpass`, never from arguments, logs or manifests.
+- Rotating that console credential before construction is a separately documented human boundary. ESA does not automate it or route around it over the network.
+- Before a profile can pin `macos.product_version` and `macos.build`, `esa tahoe observe-base` boots the base once by digest, reports its `sw_vers`, and deletes everything it created.
+- ESA does not automate native consent dialogs, TCC grants or the Passwords app. The attended Security, TCC and Passwords test stays with the consumer, and it must cover the effect of `--random-serial` (a new hardware UUID and serial) on Keychain behaviour.
 
 **Apple's terms.** The macOS software license agreement, not ESA's licence, governs macOS use. It limits virtualization, for example the number of virtual instances and the requirement to run them on Apple-branded hardware. ESA's commercial licence conveys no Apple rights. Each consumer is responsible for its own compliance.
 

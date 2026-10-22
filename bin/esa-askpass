@@ -1,0 +1,17 @@
+#!/bin/sh
+# SSH_ASKPASS helper for ESA's bootstrap channel. It holds no secret.
+#
+# ssh runs it with the prompt as $1. Only password prompts are answered, and
+# only from the file named by ESA_ASKPASS_FILE, re-checked here: a regular
+# file owned by this user with no group or other permissions.
+case "${1-}" in
+  *assword*) ;;
+  *) exit 1 ;;
+esac
+f=${ESA_ASKPASS_FILE-}
+[ -n "$f" ] && [ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] || exit 1
+case "$(ls -ln "$f" | cut -c5-10)" in
+  ------) ;;
+  *) exit 1 ;;
+esac
+exec cat -- "$f"

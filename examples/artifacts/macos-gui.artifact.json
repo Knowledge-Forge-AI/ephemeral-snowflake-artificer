@@ -5,12 +5,12 @@
   "family": "tahoe-vanilla",
   "arch": "arm64",
   "platform": "tart",
-  "artifact_id": "esa-artifact-v1:sha256:31dbb33dba5e9beb52a88897dc8f712acca994fcb25ede152470f69da3ea500e",
+  "artifact_id": "esa-artifact-v1:sha256:da154c9d39fb6f66a5d907fb7db16ab9a6565b630477b9e61ce40f2b22284899",
   "esa_revision": "f9821898394a60a9bb0d9f73eecb1be3452ff6ec",
   "profile": {
     "label": "macos-gui",
     "revision": 1,
-    "content_sha256": "sha256:9f1cd7ea5a9cb72bcd48747bc0406f6c172e6263b7b5021d5fea6eca3f30902a"
+    "content_sha256": "sha256:de2392be873f0f30072bff3b2e9856e5ee19d50c0939c8f6ba61d24a10bfe7da"
   },
   "inputs": {
     "nixpkgs": {
@@ -22,6 +22,10 @@
       "nar_hash": "sha256-Q3pTsTF+ydsPz8+EPmx8eU5Nshmh39BHcYxQZfbdUOs="
     },
     "flake_lock_sha256": "sha256:215750b732189f569346127d6bd1217557630b166fe256c24b36de683e5cd8df",
+    "nix_installer": {
+      "version": "2.31.2",
+      "sha256": "sha256:a2dec5a90518050fec60a1d2fa5437e8b71647a6dc496cf7baf9bc459a42fdfb"
+    },
     "macos": {
       "product_version": "26.0.1",
       "build": "25A362",
@@ -40,7 +44,7 @@
   "resources": {
     "cpu_count": 4,
     "memory": "8GiB",
-    "disk": "80GiB"
+    "disk": "80GB"
   },
   "customization": {
     "kind": "nix-darwin-module",
@@ -83,14 +87,6 @@
       "version": "2.31.2"
     },
     {
-      "name": "packer",
-      "version": "1.14.2"
-    },
-    {
-      "name": "packer-plugin-tart",
-      "version": "1.16.0"
-    },
-    {
       "name": "tart",
       "version": "2.30.0"
     }
@@ -105,7 +101,7 @@
       },
       {
         "path": "disk.img",
-        "size_bytes": 85899345920,
+        "size_bytes": 80000000000,
         "sha256": "sha256:21d71ef2255c986fca23b4e1bba233ee5aaa23e7f73b112d68b4e5be1e232b4f"
       },
       {
@@ -114,11 +110,11 @@
         "sha256": "sha256:6d6edb3569808f887351a3f6d72c927ff1e201b7aed38cb138feae6c98efbb70"
       }
     ],
-    "digest": "sha256:85b6f76e9bd4d1b7a8722c11461516f7fa9842843c8b587dad61469a7012e9ba"
+    "digest": "sha256:e89c84b6fbba0fa3752c3a18bfefccd07a3a5f4bbe597aec42882eea38027112"
   },
   "storage": {
-    "disk_logical_bytes": 85899345920,
-    "payload_bytes": 85899477632
+    "disk_logical_bytes": 80000000000,
+    "payload_bytes": 80000131712
   },
   "observations": [],
   "validation": [
@@ -135,19 +131,29 @@
       "reference": "https://www.apple.com/legal/sla/"
     },
     {
-      "component": "macos-image-templates",
-      "license": "LicenseRef-Upstream-Repository-Terms",
+      "component": "macos-tahoe-vanilla",
+      "license": "LicenseRef-Upstream-Image-Terms",
       "reference": "https://github.com/cirruslabs/macos-image-templates"
+    },
+    {
+      "component": "nix",
+      "license": "LGPL-2.1-or-later",
+      "reference": "https://github.com/NixOS/nix/blob/2.31.2/COPYING"
     },
     {
       "component": "nix-darwin",
       "license": "MIT",
-      "reference": "https://github.com/nix-darwin/nix-darwin"
+      "reference": "https://github.com/nix-darwin/nix-darwin/blob/cb899afbfc813526039bce1deafe79088f2d176c/LICENSE"
     },
     {
       "component": "nixpkgs",
       "license": "MIT",
-      "reference": "https://github.com/NixOS/nixpkgs/blob/master/COPYING"
+      "reference": "https://github.com/NixOS/nixpkgs/blob/b32b92a1579112f0a15fb6445325a8c9aa5f3617/COPYING"
+    },
+    {
+      "component": "nixpkgs.packages",
+      "license": "LicenseRef-Nixpkgs-Package-Meta",
+      "reference": "https://github.com/NixOS/nixpkgs/tree/b32b92a1579112f0a15fb6445325a8c9aa5f3617"
     }
   ]
 }

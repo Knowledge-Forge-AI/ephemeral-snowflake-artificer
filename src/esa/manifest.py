@@ -34,7 +34,7 @@ NIXOS_RELEASE_RE = r"[0-9]{2}\.(?:05|11)"
 MACOS_VERSION_RE = r"26\.[0-9]{1,2}(?:\.[0-9]{1,2})?"
 MACOS_BUILD_RE = r"25[A-Z][0-9]{1,4}[a-z]?"
 MEMORY_RE = r"([1-9][0-9]{0,6})(MiB|GiB)"
-DISK_RE = r"([1-9][0-9]{0,4})GiB"
+DISK_RE = r"([1-9][0-9]{0,4})(GB|GiB)"
 BUILDER_VERSION_RE = r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}"
 TIMESTAMP_RE = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
 REPORT_ID_RE = r"[a-z0-9][a-z0-9._-]{0,63}"
@@ -44,9 +44,18 @@ HTTPS_URL_RE = r"https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9._~%/+-]*)?"
 
 MIB = 1 << 20
 GIB = 1 << 30
+GB = 1000 ** 3
 MEMORY_MIN = 512 * MIB
 MEMORY_MAX = 512 * GIB
-DISK_MAX_GIB = 4096
+DISK_MAX_UNITS = 4096
+
+# The unit in which each family's construction tool sizes a disk. A declared
+# capacity that is not a whole number of this unit is refused, never rounded:
+# Nix make-disk-image takes MiB, Tart (`tart set --disk-size`) takes decimal GB.
+DISK_GRANULE = {
+    "nixos-minimal": (MIB, "MiB, the unit of Nix make-disk-image diskSize"),
+    "tahoe-vanilla": (GB, "decimal GB (10^9 bytes), the unit of tart set --disk-size"),
+}
 
 TAHOE_BASE_REPOSITORY = "ghcr.io/cirruslabs/macos-tahoe-vanilla"
 TAHOE_RECIPE_REPOSITORY = "https://github.com/cirruslabs/macos-image-templates"
@@ -54,7 +63,7 @@ TAHOE_RECIPE_PATH = "templates/vanilla-tahoe.pkr.hcl"
 
 FAMILY_INPUTS = {
     "nixos-minimal": ("nixpkgs", "flake_lock_sha256", "nixos_release"),
-    "tahoe-vanilla": ("nixpkgs", "nix_darwin", "flake_lock_sha256", "macos"),
+    "tahoe-vanilla": ("nixpkgs", "nix_darwin", "flake_lock_sha256", "macos", "nix_installer"),
 }
 ALL_INPUT_KEYS = frozenset(k for keys in FAMILY_INPUTS.values() for k in keys)
 
@@ -74,7 +83,7 @@ REGENERATE_REQUIRED = {
 
 READINESS_METHODS = ("ssh", "tart-guest-agent")
 
-BUILDER_NAMES = ("nix", "packer", "packer-plugin-tart", "tart")
+BUILDER_NAMES = ("nix", "tart")
 BUILDERS_REQUIRED = ("nix", "tart")
 
 PAYLOAD_FORMAT = "tart-vm-dir-v1"
@@ -120,10 +129,19 @@ def parse_memory(value: str) -> int:
 
 
 def parse_disk(value: str) -> int:
+    """Exact bytes: ``GB`` is 10^9 bytes and ``GiB`` is 2^30 bytes."""
     match = re.fullmatch(DISK_RE, value, flags=re.ASCII)
     if match is None:
         raise ValueError(value)
-    return int(match.group(1)) * GIB
+    return int(match.group(1)) * (GIB if match.group(2) == "GiB" else GB)
+
+
+def disk_in_units(value: str, unit: int) -> int:
+    """``value`` as a whole number of ``unit`` bytes; ValueError if inexact."""
+    size = parse_disk(value)
+    if size % unit:
+        raise ValueError(value)
+    return size // unit
 
 
 class _Checker:
@@ -251,7 +269,7 @@ def _ascii_walk(c, doc, pointer=""):
             c.err(pointer, "strings must be printable ASCII in esa-manifest-v1")
 
 
-def _resources(c, value, pointer):
+def _resources(c, value, pointer, family=None):
     if not c.obj(value, pointer, ("cpu_count", "memory", "disk")):
         return False
     ok = c.integer(value["cpu_count"], pointer + "/cpu_count", 1, 64)
@@ -263,10 +281,17 @@ def _resources(c, value, pointer):
     else:
         ok = False
     disk = value["disk"]
-    if c.string(disk, pointer + "/disk", DISK_RE, "a whole number followed by GiB, e.g. '64GiB'"):
-        if parse_disk(disk) > DISK_MAX_GIB * GIB:
-            c.err(pointer + "/disk", "must be at most %dGiB" % DISK_MAX_GIB)
+    if c.string(disk, pointer + "/disk", DISK_RE,
+                "a whole number followed by GB (10^9 bytes) or GiB (2^30 bytes), e.g. '64GiB'"):
+        if int(re.fullmatch(DISK_RE, disk, flags=re.ASCII).group(1)) > DISK_MAX_UNITS:
+            c.err(pointer + "/disk", "must be at most %d of its unit" % DISK_MAX_UNITS)
             ok = False
+        elif family in DISK_GRANULE:
+            unit, why = DISK_GRANULE[family]
+            if parse_disk(disk) % unit:
+                c.err(pointer + "/disk", "is not exactly representable in %s for family %s; "
+                      "capacities are never rounded" % (why, family))
+                ok = False
     else:
         ok = False
     return ok
@@ -300,7 +325,21 @@ def _inputs(c, value, pointer, family):
         ) and ok
         return ok
     ok = _locked_flake_input(c, value["nix_darwin"], pointer + "/nix_darwin") and ok
+    ok = _nix_installer(c, value["nix_installer"], pointer + "/nix_installer") and ok
     return _macos(c, value["macos"], pointer + "/macos") and ok
+
+
+def _nix_installer(c, value, pointer):
+    if not c.obj(value, pointer, ("version", "sha256")):
+        return False
+    ok = c.string(value["version"], pointer + "/version", BUILDER_VERSION_RE,
+                  "an exact MAJOR.MINOR.PATCH Nix release")
+    return c.sha256(value["sha256"], pointer + "/sha256") and ok
+
+
+def nix_installer_url(version: str) -> str:
+    """The release tarball a tahoe-vanilla guest installs; derived, never declared."""
+    return "https://releases.nixos.org/nix/nix-%s/nix-%s-aarch64-darwin.tar.xz" % (version, version)
 
 
 def _macos(c, value, pointer):
@@ -415,7 +454,7 @@ def _common(c, doc):
 
 def _copied_body(c, doc, family):
     """Fields a profile declares and an artifact copies verbatim."""
-    resources_ok = _resources(c, doc["resources"], "/resources")
+    resources_ok = _resources(c, doc["resources"], "/resources", family)
     if family is not None:
         _inputs(c, doc["inputs"], "/inputs", family)
         _customization(c, doc["customization"], "/customization", family)

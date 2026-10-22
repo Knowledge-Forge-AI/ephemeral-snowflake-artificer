@@ -123,12 +123,12 @@
     {
       "component": "nixpkgs",
       "license": "MIT",
-      "reference": "https://github.com/NixOS/nixpkgs/blob/master/COPYING"
+      "reference": "https://github.com/NixOS/nixpkgs/blob/3070466632a46d6a640158d07729bfa44d7d79dc/COPYING"
     },
     {
       "component": "nixpkgs.packages",
       "license": "LicenseRef-Nixpkgs-Package-Meta",
-      "reference": "https://nixos.org/manual/nixpkgs/stable/"
+      "reference": "https://github.com/NixOS/nixpkgs/tree/3070466632a46d6a640158d07729bfa44d7d79dc"
     }
   ]
 }
