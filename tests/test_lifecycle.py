@@ -2,12 +2,19 @@
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 
 import _util
 import _fakes
 from _util import run_cli
+
+# The default copy mode is APFS clonefile(2), which exists only on Darwin.
+# Elsewhere the fixtures select the existing explicit sparse copy.
+DARWIN = sys.platform == "darwin"
+COPY_MODE = [] if DARWIN else ["--copy-mode", "sparse-copy"]
+CLONE_REFUSAL = "esa: error: clone copy mode needs APFS clonefile(2); use --copy-mode sparse-copy\n"
 
 
 class LifecycleFixture(unittest.TestCase):
@@ -39,7 +46,21 @@ class InstanceTest(LifecycleFixture):
         home = home or os.path.join(self.tmp, "inst-home")
         check = check or ["--expect-artifact-id", self.artifact_id]
         return run_cli("instance", "create", "--artifact", artifact or self.artifact, "--seed-dir", seed or self.seed,
-                       "--tart", self.tools["tart"], "--tart-home", home, "--name", "job-1", *(list(check) + list(extra)))
+                       "--tart", self.tools["tart"], "--tart-home", home, "--name", "job-1",
+                       *(list(check) + COPY_MODE + list(extra)))
+
+    def test_default_copy_mode_is_apfs_clone(self):
+        home = os.path.join(self.tmp, "inst-home")
+        code, out, err = run_cli("instance", "create", "--artifact", self.artifact, "--seed-dir", self.seed,
+                                 "--tart", self.tools["tart"], "--tart-home", home, "--name", "job-1",
+                                 "--expect-artifact-id", self.artifact_id)
+        if DARWIN:
+            self.assertEqual((code, err), (0, ""))
+            self.assertEqual(json.loads(out)["host_transformations"], ["mac-address"])
+        else:
+            self.assertEqual((code, out, err), (2, "", CLONE_REFUSAL))
+            self.assertFalse(os.path.exists(home))
+            self.assertEqual(_fakes.calls(self.tools_dir), [])
 
     def test_create_transforms_only_declared_identifiers_and_delete(self):
         code, out, err = self.create()
@@ -163,7 +184,7 @@ class SeedArchiveTest(LifecycleFixture):
     def export(self, output, run="exp-run"):
         return run_cli("seed", "export", "--artifact", self.artifact, "--seed-dir", self.seed, "--tart",
                        self.tools["tart"], "--run-dir", os.path.join(self.tmp, run), "--output", output,
-                       "--expect-artifact-id", self.artifact_id)
+                       "--expect-artifact-id", self.artifact_id, *COPY_MODE)
 
     def imp(self, tvm, output, run="imp-run"):
         return run_cli("seed", "import", "--artifact", self.artifact, "--tvm", tvm, "--tart", self.tools["tart"],
@@ -185,6 +206,20 @@ class SeedArchiveTest(LifecycleFixture):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(_fakes.mode(os.path.join(out_seed, "disk.img")), 0o444)
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "imp-run", "tart-home")))
+
+    def test_export_default_copy_mode_is_apfs_clone(self):
+        tvm = os.path.join(self.tmp, "archive.tvm")
+        code, out, err = run_cli("seed", "export", "--artifact", self.artifact, "--seed-dir", self.seed, "--tart",
+                                 self.tools["tart"], "--run-dir", os.path.join(self.tmp, "exp-run"), "--output", tvm,
+                                 "--expect-artifact-id", self.artifact_id)
+        if DARWIN:
+            self.assertEqual((code, err), (0, ""))
+            self.assertEqual(json.loads(out)["archive_sha256"], _fakes.sha256_file(tvm))
+        else:
+            self.assertEqual((code, out, err), (2, "", CLONE_REFUSAL))
+            self.assertFalse(os.path.exists(tvm))
+            self.assertEqual(_fakes.calls(self.tools_dir), [])
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "exp-run", "tart-home")))
 
     def test_export_refuses_existing_archive(self):
         tvm = _util.write_bytes(self.tmp, "archive.tvm", b"keep")
