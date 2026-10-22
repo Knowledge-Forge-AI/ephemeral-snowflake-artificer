@@ -271,6 +271,33 @@ class PinTest(ManifestCase):
         self.assertRefused(doc, "/inputs/macos/build", "macOS 26")
 
 
+class TahoeInputTest(ManifestCase):
+    def test_nix_installer_required_and_exact(self):
+        doc = _util.load("macos-profile")
+        del doc["inputs"]["nix_installer"]
+        self.assertRefused(doc, "/inputs/nix_installer", "required")
+        doc = _util.load("macos-profile")
+        doc["inputs"]["nix_installer"]["version"] = "2.31"
+        self.assertRefused(doc, "/inputs/nix_installer/version", "MAJOR.MINOR.PATCH")
+        doc = _util.load("macos-profile")
+        doc["inputs"]["nix_installer"]["url"] = "https://releases.nixos.org/x"
+        self.assertRefused(doc, "/inputs/nix_installer/url", "unknown")
+
+    def test_nix_installer_foreign_to_nixos(self):
+        doc = _util.load("linux-profile")
+        doc["inputs"]["nix_installer"] = {"version": "2.31.5", "sha256": "sha256:" + "0" * 64}
+        self.assertRefused(doc, "/inputs/nix_installer", "not permitted for family nixos-minimal")
+
+    def test_installer_url_is_derived(self):
+        self.assertEqual(manifest.nix_installer_url("2.31.5"),
+                         "https://releases.nixos.org/nix/nix-2.31.5/nix-2.31.5-aarch64-darwin.tar.xz")
+
+    def test_packer_is_not_a_builder(self):
+        doc = _util.load("macos-artifact")
+        doc["builders"][1] = {"name": "packer", "version": "1.14.2"}
+        self.assertRefused(doc, "/builders/1/name")
+
+
 class UnitTest(ManifestCase):
     def test_malformed_memory(self):
         for bad in ("8GB", "8 GiB", "8gib", "8.5GiB", "0GiB", "-1GiB", "8", 8, "256MiB", "1024GiB"):
@@ -285,6 +312,29 @@ class UnitTest(ManifestCase):
                 doc = _util.load("linux-profile")
                 doc["resources"]["disk"] = bad
                 self.assertRefused(doc, "/resources/disk")
+
+    def test_disk_units_are_exact_bytes(self):
+        self.assertEqual(manifest.parse_disk("64GiB"), 68719476736)
+        self.assertEqual(manifest.parse_disk("50GB"), 50000000000)
+        self.assertEqual(manifest.disk_in_units("80GB", 1000 ** 3), 80)
+        with self.assertRaises(ValueError):
+            manifest.disk_in_units("80GB", 1 << 20)
+
+    def test_nixos_disk_must_be_whole_mib(self):
+        doc = _util.load("linux-profile")
+        doc["resources"]["disk"] = "64GB"
+        self.assertRefused(doc, "/resources/disk", "not exactly representable in MiB")
+        doc["resources"]["disk"] = "2048GB"
+        self.assertValid(doc)
+
+    def test_tahoe_disk_must_be_whole_decimal_gb(self):
+        doc = _util.load("macos-profile")
+        doc["resources"]["disk"] = "50GiB"
+        self.assertRefused(doc, "/resources/disk", "decimal GB")
+        doc["resources"]["disk"] = "50GB"
+        self.assertValid(doc)
+        doc["resources"]["disk"] = "4097GB"
+        self.assertRefused(doc, "/resources/disk", "at most 4096")
 
     def test_storage_metric_types(self):
         for bad, fragment in ((-1, "between"), ("1024", "integer"), (True, "integer"), (None, "integer")):

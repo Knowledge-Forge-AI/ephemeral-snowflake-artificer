@@ -52,7 +52,7 @@ class PositiveCLITest(CLITestCase):
         self.assertEqual(summary["admission"], "not-determined-by-esa")
         self.assertEqual(summary["label"], {"value": "linux-ci", "mutable": True, "identity_bearing": False})
         self.assertEqual(summary["identity"], {"profile_content_sha256": _util.EXPECTED["linux-profile"]})
-        self.assertEqual(summary["construction"]["status"], "unavailable")
+        self.assertEqual(summary["construction"]["status"], "implemented-not-native-qualified")
         self.assertIs(summary["capabilities_verified_by_esa"], False)
 
     def test_inspect_artifact(self):
@@ -168,10 +168,11 @@ class PlanCLITest(CLITestCase):
                 plan = json.loads(out)
                 self.assertEqual(plan["plan_schema"], "esa-plan-v1")
                 self.assertIs(plan["executes"], False)
-                self.assertEqual(plan["construction"]["status"], "unavailable")
+                self.assertEqual(plan["construction"]["status"], "implemented-not-native-qualified")
                 self.assertEqual(plan["profile"]["content_sha256"], _util.EXPECTED[family + "-profile"])
                 self.assertTrue(plan["steps"])
-                self.assertTrue(all(step["implemented"] is False for step in plan["steps"]))
+                self.assertTrue(all(step["implemented"] is True for step in plan["steps"]))
+                self.assertTrue(all(step["native_qualified"] is False for step in plan["steps"]))
                 self.assertEqual({step["work_unit"] for step in plan["steps"]}, units)
                 self.assertNotIn("success", out.lower())
 
@@ -314,7 +315,7 @@ class VerifyPayloadCLITest(CLITestCase):
         self.assertIn("disk.img: sha256 does not match", err)
 
     def test_flipped_config_byte_fails_quick(self):
-        _util.write_bytes(self.payload, "config.json", _util.PAYLOAD_CONFIG.replace(b"test", b"tesT"))
+        _util.write_bytes(self.payload, "config.json", _util.PAYLOAD_CONFIG.replace(b"linux", b"LINUX"))
         code, _, err = self.verify("--quick")
         self.assertEqual(code, 1)
         self.assertIn("config.json: sha256 does not match", err)

@@ -9,7 +9,7 @@
   "resources": {
     "cpu_count": 4,
     "memory": "8GiB",
-    "disk": "80GiB"
+    "disk": "80GB"
   },
   "inputs": {
     "nixpkgs": {
@@ -21,6 +21,10 @@
       "nar_hash": "sha256-Q3pTsTF+ydsPz8+EPmx8eU5Nshmh39BHcYxQZfbdUOs="
     },
     "flake_lock_sha256": "sha256:215750b732189f569346127d6bd1217557630b166fe256c24b36de683e5cd8df",
+    "nix_installer": {
+      "version": "2.31.2",
+      "sha256": "sha256:a2dec5a90518050fec60a1d2fa5437e8b71647a6dc496cf7baf9bc459a42fdfb"
+    },
     "macos": {
       "product_version": "26.0.1",
       "build": "25A362",

@@ -3,7 +3,8 @@
 ## Status
 
 Accepted (2026-10-21). This records operator decisions; it does not claim
-working images or onboarded consumers.
+working images or onboarded consumers. Decisions 5 and 6 are extended by
+[ADR 0002](0002-esa-backends.md), which adds the construction commands.
 
 ## Context
 

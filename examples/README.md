@@ -2,7 +2,7 @@
 
 **Every value in these files is synthetic.**
 
-- Revisions, `nar_hash` values, digests, sizes, builder versions, macOS versions and builds, and observations were derived from fixed placeholder strings. They are not real pins and refer to no existing payload, commit or image.
+- Revisions, `nar_hash` values, digests, sizes, builder versions, the Nix installer version and checksum, macOS versions and builds, and observations were derived from fixed placeholder strings. They are not real pins and refer to no existing payload, commit or image.
 - Do not copy them into a real profile.
 
 | File | Kind | Family |
